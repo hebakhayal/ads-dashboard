@@ -1,0 +1,17 @@
+{
+    "name": "advdashboards",
+    "compatibility_date": "2026-01-01",
+    "main": "worker.js",
+    "workers_dev": true,
+    "routes": [
+        {
+            "pattern": "advdaashboards.almahagroup.org",
+            "custom_domain": true
+        }
+    ],
+    "assets": {
+        "directory": ".",
+        "binding": "ASSETS",
+        "run_worker_first": true
+    }
+}
