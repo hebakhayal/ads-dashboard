@@ -1798,6 +1798,12 @@
                     0 16px 40px rgba(212, 168, 83, 0.45),
                     inset 0 1px 0 rgba(255, 255, 255, 0.5);
             }
+            #landing .login:disabled {
+                opacity: 0.75;
+                cursor: not-allowed;
+                transform: none;
+                box-shadow: none;
+            }
             #landing .lform.shake {
                 animation: shake 0.4s;
             }
@@ -4387,111 +4393,179 @@
                 const f = 100 / imgs.length;
                 st.textContent = `@keyframes lfade{0%{opacity:0;transform:scale(1.04)}${(f * 0.15).toFixed(2)}%{opacity:1}${(f * 0.85).toFixed(2)}%{opacity:1}${(f * 1.15).toFixed(2)}%{opacity:0;transform:scale(1.14)}100%{opacity:0}}`;
                 document.head.appendChild(st);
-                // auth
-                const enter = () => {
+                // Auth & Session
+                const F = document.getElementById("loginForm"),
+                    E = document.getElementById("lerr"),
+                    PW = document.getElementById("lp"),
+                    loginBtn = document.getElementById("loginBtn"),
+                    loginLbl = document.getElementById("loginLbl"),
+                    rememberBox = document.getElementById("lrem"),
+                    userInput = document.getElementById("lu");
+
+                const enter = (immediate = false) => {
+                    if (immediate) {
+                        L.style.transition = "none";
+                    } else {
+                        L.style.transition = "";
+                    }
                     L.classList.add("out");
                     document.body.classList.remove("locked");
                     try {
                         sessionStorage.setItem("portalIn", "1");
                     } catch (e) {}
                 };
-                const AUTH =
-                    "dc041a20b59b11a4d6a66284cc3204b07146038a44633ab4c90d26f36f00f641"; // SHA-256 لـ "اسم المستخدم:كلمة المرور" — كلمة المرور نفسها غير مكتوبة في الكود
-                const REM = "portalRemember";
-                let seen = false;
-                try {
-                    seen = sessionStorage.getItem("portalIn") === "1";
-                } catch (e) {}
-                try {
-                    const r = JSON.parse(localStorage.getItem(REM) || "null");
-                    if (r && r.t === AUTH) {
-                        seen = true;
-                    } else if (r) {
-                        localStorage.removeItem(REM);
-                    }
-                    if (r && r.u) {
-                        document.getElementById("lu").value = r.u;
-                    }
-                } catch (e) {}
-                if (seen) {
-                    L.style.transition = "none";
-                    enter();
-                }
-                const sha = async (t) => {
-                    const d = await crypto.subtle.digest(
-                        "SHA-256",
-                        new TextEncoder().encode(t),
-                    );
-                    return [...new Uint8Array(d)]
-                        .map((x) => x.toString(16).padStart(2, "0"))
-                        .join("");
-                };
-                const F = document.getElementById("loginForm"),
-                    E = document.getElementById("lerr"),
-                    PW = document.getElementById("lp");
-                document.getElementById("logoutBtn").onclick = () => {
-                    try {
-                        sessionStorage.removeItem("portalIn");
-                        localStorage.removeItem(REM);
-                    } catch (e) {}
-                    document.getElementById("lrem").checked = false;
-                    document.getElementById("lu").value = "";
-                    PW.value = "";
-                    E.textContent = "";
-                    if (typeof closeDrawer === "function") closeDrawer();
-                    window.scrollTo(0, 0);
+
+                const lock = () => {
                     L.style.transition = "";
                     document.body.classList.add("locked");
                     L.classList.remove("out");
                     F.classList.add("collapsed");
-                    document.getElementById("loginLbl").textContent = "دخول";
+                    loginLbl.textContent = "دخول";
+                    try {
+                        sessionStorage.removeItem("portalIn");
+                    } catch (e) {}
                 };
+
+                // Pre-fill remembered username if available
+                try {
+                    const savedUser = localStorage.getItem("portalRememberUser");
+                    if (savedUser) {
+                        userInput.value = savedUser;
+                        rememberBox.checked = true;
+                    }
+                } catch (e) {}
+
+                // Verify session with the server
+                const checkSession = async () => {
+                    try {
+                        const res = await fetch("/api/session");
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data && data.authenticated) {
+                                enter(true);
+                                return;
+                            }
+                        }
+                    } catch (e) {}
+                    lock();
+                };
+
+                // If user was already active in this tab, show dashboard optimistically while validating
+                if (sessionStorage.getItem("portalIn") === "1") {
+                    enter(true);
+                }
+                checkSession();
+
+                // Logout button
+                document.getElementById("logoutBtn").onclick = async () => {
+                    try {
+                        await fetch("/api/logout", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                        });
+                    } catch (e) {}
+                    try {
+                        sessionStorage.removeItem("portalIn");
+                    } catch (e) {}
+                    PW.value = "";
+                    E.textContent = "";
+                    if (typeof closeDrawer === "function") closeDrawer();
+                    window.scrollTo(0, 0);
+                    lock();
+                };
+
+                // Password toggle
                 document.getElementById("leye").onclick = () => {
                     PW.type = PW.type === "password" ? "text" : "password";
                 };
+
+                // Press Enter to submit in input fields
+                [userInput, PW].forEach((el) => {
+                    el.addEventListener("keydown", (ev) => {
+                        if (ev.key === "Enter") {
+                            ev.preventDefault();
+                            if (typeof F.requestSubmit === "function") {
+                                F.requestSubmit();
+                            } else {
+                                F.dispatchEvent(new Event("submit", { cancelable: true }));
+                            }
+                        }
+                    });
+                });
+
+                // Login form submission
                 F.onsubmit = async (ev) => {
                     ev.preventDefault();
                     E.textContent = "";
+
                     if (F.classList.contains("collapsed")) {
                         F.classList.remove("collapsed");
-                        document.getElementById("loginLbl").textContent =
-                            "تسجيل الدخول";
-                        setTimeout(
-                            () => document.getElementById("lu").focus(),
-                            250,
-                        );
+                        loginLbl.textContent = "تسجيل الدخول";
+                        setTimeout(() => userInput.focus(), 250);
                         return;
                     }
-                    const u = document.getElementById("lu").value.trim(),
-                        pw = PW.value;
+
+                    const u = userInput.value.trim(),
+                        pw = PW.value,
+                        rem = rememberBox.checked;
+
                     if (!u || !pw) {
                         E.textContent = "أدخل اسم المستخدم وكلمة المرور";
-                        return;
-                    }
-                    let h = "";
-                    try {
-                        h = await sha(u + ":" + pw);
-                    } catch (e) {
-                        E.textContent = "تعذّر التحقق في هذا المتصفح";
-                        return;
-                    }
-                    if (h === AUTH) {
-                        PW.value = "";
-                        try {
-                            if (document.getElementById("lrem").checked)
-                                localStorage.setItem(
-                                    REM,
-                                    JSON.stringify({ t: AUTH, u: u }),
-                                );
-                            else localStorage.removeItem(REM);
-                        } catch (e) {}
-                        enter();
-                    } else {
-                        E.textContent = "اسم المستخدم أو كلمة المرور غير صحيحة";
                         F.classList.remove("shake");
                         void F.offsetWidth;
                         F.classList.add("shake");
-                        PW.select();
+                        return;
+                    }
+
+                    // Button loading state
+                    loginBtn.disabled = true;
+                    loginLbl.textContent = "جاري التحقق...";
+
+                    try {
+                        const res = await fetch("/api/login", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Accept": "application/json",
+                            },
+                            body: JSON.stringify({
+                                username: u,
+                                password: pw,
+                                remember: rem,
+                            }),
+                        });
+
+                        const data = await res.json().catch(() => ({}));
+
+                        if (res.ok && data.success) {
+                            PW.value = "";
+                            E.textContent = "";
+                            try {
+                                if (rem) {
+                                    localStorage.setItem("portalRememberUser", u);
+                                } else {
+                                    localStorage.removeItem("portalRememberUser");
+                                }
+                            } catch (e) {}
+                            enter(false);
+                        } else {
+                            E.textContent =
+                                data.message || "اسم المستخدم أو كلمة المرور غير صحيحة";
+                            F.classList.remove("shake");
+                            void F.offsetWidth;
+                            F.classList.add("shake");
+                            PW.select();
+                        }
+                    } catch (err) {
+                        E.textContent = "تعذّر الاتصال بالخادم، يُرجى المحاولة لاحقاً";
+                        F.classList.remove("shake");
+                        void F.offsetWidth;
+                        F.classList.add("shake");
+                    } finally {
+                        loginBtn.disabled = false;
+                        loginLbl.textContent = F.classList.contains("collapsed")
+                            ? "دخول"
+                            : "تسجيل الدخول";
                     }
                 };
             })();
